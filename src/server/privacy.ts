@@ -54,3 +54,14 @@ export async function listStudents(user: SessionUser | null | undefined) {
     select: { id: true, name: true, email: true, _count: { select: { attempts: true, enrollments: true } } },
   });
 }
+
+/** Scheduled job: purge expired attempts for every tenant. Returns counts only (no student data). */
+export async function runRetentionAllTenants() {
+  const tenants = await db.tenant.findMany({ select: { id: true } });
+  const out: Array<{ tenantId: string; days: number; deleted: number }> = [];
+  for (const t of tenants) {
+    const days = await getRetentionDays(t.id);
+    out.push({ tenantId: t.id, days, deleted: (await purgeExpiredAttempts(t.id, days)).deleted });
+  }
+  return out;
+}

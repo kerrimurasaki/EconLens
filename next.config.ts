@@ -26,6 +26,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pg", "bcryptjs"],
+  // The AI prompts are read from disk at runtime; make sure serverless bundles include them.
+  outputFileTracingIncludes: { "/**/*": ["./prompts/**/*"] },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

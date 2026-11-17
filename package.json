@@ -16,7 +16,9 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "postinstall": "prisma generate",
-    "retention:run": "tsx scripts/retention.ts"
+    "retention:run": "tsx scripts/retention.ts",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
+    "users:create": "tsx scripts/create-users.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",

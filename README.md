@@ -35,6 +35,20 @@ Password for all: `EconLens-demo-1!`
 
 Sample class join code: `DEMO2026` (fictitious class). teacher1 owns a complete 90-minute sample lesson published to it; student1 and student2 have submitted sample attempts and student3 has not started. **Never run the seed against a production database** (it refuses when `NODE_ENV=production`).
 
+## Deploy to Vercel
+1. Create a hosted Postgres database (Vercel Marketplace: Neon or Supabase) and copy its **pooled** connection string.
+2. Import `kerrimurasaki/EconLens` at vercel.com. Vercel runs the `vercel-build` script (`prisma generate && prisma migrate deploy && next build`), so migrations apply on every deploy.
+3. Set environment variables: `DATABASE_URL`, `NEXTAUTH_SECRET` (32+ random characters), `NEXTAUTH_URL` (your public URL), `CRON_SECRET` (16+ random characters), and `AI_PROVIDER` (plus `OPENAI_API_KEY` and `OPENAI_MODEL` if not `demo`).
+4. Create the first accounts. There is no sign-up page and the demo seed refuses to run in production. From your machine, with `DATABASE_URL` pointing at the production database:
+   ```bash
+   npm run users:create -- --new-tenant "Your College" --email you@college.edu --name "Your Name" --role ADMIN
+   npm run users:create -- --tenant <tenantId> --csv roster.csv     # header: name,email,role
+   ```
+   A random temporary password is printed once for each new account; pass `--password` (12+ characters) to choose your own. Existing emails are skipped, never overwritten.
+5. `vercel.json` schedules `/api/cron/retention` daily; it requires `CRON_SECRET`.
+
+Before real students use it: in-memory rate limiting does not hold across serverless instances (use a shared store), the Hobby plan limits functions to 60 seconds (lesson generation with a real model may need Pro), and the OpenAI path should be tested with a real key first.
+
 ## Commands
 | Command | What it does |
 |---|---|
@@ -43,6 +57,7 @@ Sample class join code: `DEMO2026` (fictitious class). teacher1 owns a complete 
 | `npm test` | Unit tests plus the database-backed access-control matrix (the matrix skips itself if Postgres is unreachable) |
 | `npm run test:e2e` | Playwright journey, accessibility (axe), keyboard and mobile tests using your installed Chrome (`E2E_CHANNEL=msedge` for Edge). Needs the database and seed; starts `npm run dev` if it is not running |
 | `npm run db:migrate` / `db:seed` / `db:reset` | Database |
+| `npm run users:create -- ...` | Creates institutions and accounts (admin, teacher, student; single or CSV) |
 | `npm run retention:run` | Deletes student attempts older than each tenant's retention period (schedule this daily) |
 | `bash tests/e2e-api.sh`, `e2e-edit.sh`, `e2e-learn.sh` | Optional HTTP smoke flows against a running server |
 | `tests/cleanup.sql` | Removes data created by smoke runs and Playwright |
