@@ -1,0 +1,394 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum ExperienceStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum VerificationStatus {
+  verified
+  teacher_provided
+  disputed
+  hypothetical
+  unverified
+}
+
+enum ClaimType {
+  fact
+  claim
+  opinion
+  hypothesis
+  unknown
+}
+
+enum AssignmentStatus {
+  SCHEDULED
+  OPEN
+  CLOSED
+}
+
+enum ReviewStatus {
+  NONE
+  NEEDS_REVIEW
+  REVIEWED
+}
+
+enum AIJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+model Tenant {
+  id           String   @id @default(cuid())
+  name         String
+  settingsJson Json     @default("{}")
+  createdAt    DateTime @default(now())
+
+  users       User[]
+  classrooms  Classroom[]
+  objectives  CurriculumObjective[]
+  eventCases  EventCase[]
+  experiences Experience[]
+  aiJobs      AIJob[]
+  auditEvents AuditEvent[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  createdAt    DateTime @default(now())
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  taught      Classroom[]       @relation("ClassTeacher")
+  enrollments ClassEnrollment[]
+  eventCases  EventCase[]
+  experiences Experience[]
+  attempts    Attempt[]
+  aiJobs      AIJob[]
+
+  @@index([tenantId, role])
+}
+
+model Classroom {
+  id            String    @id @default(cuid())
+  tenantId      String
+  name          String
+  teacherId     String
+  joinCode      String    @unique
+  joinExpiresAt DateTime?
+  term          String?
+  createdAt     DateTime  @default(now())
+
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  teacher     User              @relation("ClassTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+  enrollments ClassEnrollment[]
+  assignments Assignment[]
+
+  @@index([tenantId, teacherId])
+}
+
+model ClassEnrollment {
+  id        String   @id @default(cuid())
+  classId   String
+  studentId String
+  createdAt DateTime @default(now())
+
+  classroom Classroom @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student   User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, studentId])
+  @@index([studentId])
+}
+
+model CurriculumObjective {
+  id                String @id @default(cuid())
+  tenantId          String
+  code              String
+  title             String
+  level             String
+  bloomLevel        String
+  conceptsJson      Json   @default("[]")
+  prerequisitesJson Json   @default("[]")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+}
+
+model EventCase {
+  id                    String             @id @default(cuid())
+  tenantId              String
+  creatorId             String
+  title                 String
+  inputType             String
+  inputText             String
+  eventDate             DateTime?
+  geography             String?
+  factStatus            VerificationStatus @default(unverified)
+  isDemo                Boolean            @default(false)
+  sourceUrl             String?
+  analysisJson          Json?
+  analysisMode          String?
+  analysisModel         String?
+  analysisPromptVersion String?
+  analyzedAt            DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator     User                @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  sources     Source[]
+  claims      EvidenceClaim[]
+  concepts    ConceptSuggestion[]
+  experiences Experience[]
+
+  @@index([tenantId, createdAt])
+}
+
+model Source {
+  id              String             @id @default(cuid())
+  eventCaseId     String
+  url             String?
+  title           String
+  publisher       String?
+  publicationDate DateTime?
+  retrievedAt     DateTime?
+  excerpt         String?
+  status          VerificationStatus @default(unverified)
+
+  eventCase EventCase       @relation(fields: [eventCaseId], references: [id], onDelete: Cascade)
+  claims    EvidenceClaim[]
+
+  @@index([eventCaseId])
+}
+
+model EvidenceClaim {
+  id                 String             @id @default(cuid())
+  eventCaseId        String
+  text               String
+  claimType          ClaimType
+  verificationStatus VerificationStatus @default(unverified)
+  sourceId           String?
+
+  eventCase EventCase @relation(fields: [eventCaseId], references: [id], onDelete: Cascade)
+  source    Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([eventCaseId])
+}
+
+model ConceptSuggestion {
+  id                String  @id @default(cuid())
+  eventCaseId       String
+  conceptKey        String
+  score             Float
+  explanation       String
+  limitationsJson   Json    @default("[]")
+  prerequisitesJson Json    @default("[]")
+  misconceptionJson Json    @default("[]")
+  detailsJson       Json    @default("{}")
+  rank              Int     @default(0)
+  selected          Boolean @default(false)
+
+  eventCase EventCase @relation(fields: [eventCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([eventCaseId, conceptKey])
+}
+
+model Experience {
+  id               String           @id @default(cuid())
+  tenantId         String
+  eventCaseId      String
+  creatorId        String
+  title            String
+  status           ExperienceStatus @default(DRAFT)
+  durationMinutes  Int
+  level            String           @default("Foundation")
+  settingsJson     Json             @default("{}")
+  currentVersionId String?          @unique
+  isDemo           Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  eventCase      EventCase           @relation(fields: [eventCaseId], references: [id], onDelete: Restrict)
+  creator        User                @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  versions       ExperienceVersion[] @relation("VersionOwner")
+  currentVersion ExperienceVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  assignments    Assignment[]
+
+  @@index([tenantId, status, updatedAt])
+}
+
+// contentJson is the canonical document. Block and AssessmentItem rows are derived from it in the same transaction.
+model ExperienceVersion {
+  id             String    @id @default(cuid())
+  experienceId   String
+  versionNumber  Int
+  createdBy      String
+  generatedAt    DateTime  @default(now())
+  contentJson    Json
+  promptVersion  String?
+  modelId        String?
+  validationJson Json?
+  isPublished    Boolean   @default(false)
+  publishedAt    DateTime?
+  publishedBy    String?
+
+  experience  Experience        @relation("VersionOwner", fields: [experienceId], references: [id], onDelete: Cascade)
+  asCurrent   Experience?       @relation("CurrentVersion")
+  blocks      ExperienceBlock[]
+  items       AssessmentItem[]
+  assignments Assignment[]
+
+  @@unique([experienceId, versionNumber])
+}
+
+model ExperienceBlock {
+  id                  String @id @default(cuid())
+  experienceVersionId String
+  order               Int
+  type                String
+  title               String
+  durationMinutes     Int
+  contentJson         Json
+  teacherNotesJson    Json   @default("{}")
+  objectiveIdsJson    Json   @default("[]")
+  sourceIdsJson       Json   @default("[]")
+  visibility          String @default("student")
+
+  version ExperienceVersion @relation(fields: [experienceVersionId], references: [id], onDelete: Cascade)
+  items   AssessmentItem[]
+
+  @@unique([experienceVersionId, order])
+}
+
+model AssessmentItem {
+  id                  String  @id @default(cuid())
+  experienceVersionId String
+  blockId             String?
+  type                String
+  promptJson          Json
+  optionsJson         Json?
+  answerKeyJson       Json
+  explanationJson     Json?
+  rubricJson          Json?
+  objectiveId         String?
+  independent         Boolean @default(false)
+
+  version   ExperienceVersion @relation(fields: [experienceVersionId], references: [id], onDelete: Cascade)
+  block     ExperienceBlock?  @relation(fields: [blockId], references: [id], onDelete: SetNull)
+  responses Response[]
+
+  @@index([experienceVersionId, independent])
+}
+
+model Assignment {
+  id                 String           @id @default(cuid())
+  experienceId       String
+  publishedVersionId String
+  classId            String
+  startAt            DateTime         @default(now())
+  dueAt              DateTime?
+  joinExpiresAt      DateTime?
+  feedbackMode       String           @default("after_submit")
+  feedbackReleasedAt DateTime?
+  status             AssignmentStatus @default(OPEN)
+  createdAt          DateTime         @default(now())
+
+  experience       Experience        @relation(fields: [experienceId], references: [id], onDelete: Restrict)
+  publishedVersion ExperienceVersion @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict)
+  classroom        Classroom         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  attempts         Attempt[]
+
+  @@unique([experienceId, publishedVersionId, classId])
+  @@index([classId])
+}
+
+model Attempt {
+  id           String       @id @default(cuid())
+  assignmentId String
+  studentId    String
+  startedAt    DateTime     @default(now())
+  submittedAt  DateTime?
+  score        Float?
+  reviewStatus ReviewStatus @default(NONE)
+  stateJson    Json         @default("{}")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    User       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  responses  Response[]
+
+  @@unique([assignmentId, studentId])
+}
+
+model Response {
+  id               String   @id @default(cuid())
+  attemptId        String
+  assessmentItemId String
+  responseJson     Json
+  autoScore        Float?
+  teacherScore     Float?
+  feedbackJson     Json?
+  updatedAt        DateTime @updatedAt
+
+  attempt Attempt        @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  item    AssessmentItem @relation(fields: [assessmentItemId], references: [id], onDelete: Restrict)
+
+  @@unique([attemptId, assessmentItemId])
+}
+
+model AIJob {
+  id            String      @id @default(cuid())
+  tenantId      String
+  userId        String
+  operation     String
+  status        AIJobStatus @default(QUEUED)
+  retryCount    Int         @default(0)
+  inputHash     String
+  promptVersion String?
+  modelId       String?
+  errorCode     String?
+  createdAt     DateTime    @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, operation, inputHash])
+  @@index([tenantId, userId, createdAt])
+}
+
+model AuditEvent {
+  id           String   @id @default(cuid())
+  tenantId     String
+  actorId      String?
+  action       String
+  objectType   String
+  objectId     String
+  createdAt    DateTime @default(now())
+  metadataJson Json     @default("{}")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
